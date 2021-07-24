@@ -1,43 +1,74 @@
-version: "3.3"
+version: "3.8"
 services:
-  mail:
-    image: bytemark/smtp
-    restart: always
+    mail:
+        image: bytemark/smtp
+        container_name: plausible_mail
+        hostname: plausible_mail
+        restart: always
 
-  plausible_db:
-    image: postgres:12
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_PASSWORD=postgres
+        networks:
+            - web
+            - default
 
-  plausible_events_db:
-    image: yandex/clickhouse-server:21.3.2.5
-    volumes:
-      - event-data:/var/lib/clickhouse
-      - ./clickhouse/clickhouse-config.xml:/etc/clickhouse-server/config.d/logging.xml:ro
-      - ./clickhouse/clickhouse-user-config.xml:/etc/clickhouse-server/users.d/logging.xml:ro
-    ulimits:
-      nofile:
-        soft: 262144
-        hard: 262144
+    plausible_db:
+        image: postgres:12
+        container_name: plausible_db
+        hostname: plausible_db
+        volumes:
+            - db-data:/var/lib/postgresql/data
+        environment:
+            - POSTGRES_PASSWORD=postgres
 
-  plausible:
-    image: plausible/analytics:latest
-    command: sh -c "sleep 10 && /entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh db init-admin && /entrypoint.sh run"
-    depends_on:
-      - plausible_db
-      - plausible_events_db
-      - mail
-    ports:
-      - 8000:8000
-    env_file:
-      - plausible-conf.env
+    plausible_events_db:
+        image: yandex/clickhouse-server:21.3.2.5
+        container_name: plausible_events_db
+        hostname: plausible_events_db
+        volumes:
+            - event-data:/var/lib/clickhouse
+            - ./clickhouse/clickhouse-config.xml:/etc/clickhouse-server/config.d/logging.xml:ro
+            - ./clickhouse/clickhouse-user-config.xml:/etc/clickhouse-server/users.d/logging.xml:ro
+        ulimits:
+            nofile:
+                soft: 262144
+                hard: 262144
+
+    plausible:
+        image: plausible/analytics:latest
+        container_name: plausible
+        hostname: plausible
+        command: sh -c "sleep 10 && /entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh db init-admin && /entrypoint.sh run"
+        depends_on:
+            - plausible_db
+            - plausible_events_db
+            - mail
+        ports:
+            - 8000:8000
+        env_file:
+            - plausible/plausible-conf.env
+            - plausible/plausible-conf.env.override
+
+        labels:
+            traefik.enable: "true"
+
+            traefik.http.routers.analytics.rule: "Host(`analytics.jeppe.science`)"
+            traefik.http.routers.analytics.entrypoints: "websecure"
+            traefik.http.routers.analytics.tls.certresolver: "letsencrypt"
+
+            traefik.http.services.analytics.loadbalancer.server.port: "8000"
+
+        networks:
+            - web
+            - default
+
 
 volumes:
-  db-data:
-    driver: local
-  event-data:
-    driver: local
-  geoip:
-    driver: local
+    db-data:
+        driver: local
+    event-data:
+        driver: local
+    geoip:
+        driver: local
+
+networks:
+    web:
+        external: true
